@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>عداد سكان مصر - المطور</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.7.1/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Cairo', sans-serif;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        .dashboard-container {
+            background: linear-gradient(135deg, #ffffff, #f9fafb);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            text-align: center;
+            max-width: 100%;
+            margin: 0 auto;
+            animation: fadeInUp 0.5s ease-out;
+        }
+
+        .title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #1f2937;
+        }
+
+        #population-counter {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #3b82f6;
+            margin-bottom: 10px;
+            transition: transform 0.3s ease;
+        }
+
+        #population-counter:hover {
+            transform: scale(1.05);
+        }
+
+        .updated-time {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            margin-bottom: 20px;
+        }
+
+        .details-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .detail-card {
+            background-color: #f9fafb;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-height: 400px;
+            overflow-y: auto;
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        .detail-card:hover {
+            background-color: #e5e7eb;
+            transform: translateY(-5px);
+        }
+
+        .detail-card h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .detail-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        .chart-container {
+            margin-top: 20px;
+            height: 300px;
+        }
+
+        .map-container {
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        .notification {
+            background-color: #fef2f2;
+            border-left: 4px solid #f87171;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+            animation: shake 0.5s;
+        }
+
+        .notification.active {
+            display: block;
+        }
+
+        .notification h3 {
+            margin-top: 0;
+            font-size: 1rem;
+            color: #b91c1c;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            50% { transform: translateX(5px); }
+            75% { transform: translateX(-5px); }
+            100% { transform: translateX(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container" data-aos="fade-up">
+        <h1 class="title">تعداد سكان مصر الحالي</h1>
+        <div id="population-counter">جاري تحميل البيانات...</div>
+        <div class="updated-time" id="last-updated">جاري التحديث...</div>
+
+        <div class="notification" id="notification">
+            <h3>تنبيه: حدث تغيير كبير في البيانات!</h3>
+        </div>
+
+        <div class="details-section">
+            <div class="detail-card" data-aos="fade-right">
+                <h2>المواليد الجدد</h2>
+                <div class="detail-list" id="birth-list">جاري تحميل البيانات...</div>
+            </div>
+            <div class="detail-card" data-aos="fade-left">
+                <h2>الوفيات</h2>
+                <div class="detail-list" id="death-list">جاري تحميل البيانات...</div>
+            </div>
+        </div>
+
+        <div class="chart-container" data-aos="zoom-in">
+            <canvas id="populationChart"></canvas>
+        </div>
+
+        <div class="map-container" data-aos="fade-up">
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+    <script>
+        AOS.init({
+            duration: 1000,
+            easing: 'ease-in-out',
+            once: true
+        });
+
+        let population = 104000000;
+        const populationData = [population];
+        const birthList = document.getElementById('birth-list');
+        const deathList = document.getElementById('death-list');
+        const notification = document.getElementById('notification');
+
+        // Initialize the map
+        const map = L.map('map').setView([26.8205, 30.8025], 6);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // Function to fetch data from a mock API
+        async function fetchPopulationData() {
+            try {
+                // Replace with actual API endpoint for real data
+                const response = await fetch('https://api.mockdata.com/population');
+                const data = await response.json();
+
+                const newPopulation = data.currentPopulation;
+                const newBirths = data.newBirths;
+                const newDeaths = data.recentDeaths;
+
+                updateCounter(newPopulation, newBirths, newDeaths);
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                const mockBirths = [
+                    { name: "محمد علي", age: "حديث الولادة", location: "القاهرة" },
+                    { name: "ليلى أحمد", age: "حديثة الولادة", location: "الإسكندرية" }
+                ];
+                const mockDeaths = [
+                    { name: "عمر سعيد", age: 72, location: "أسيوط", reason: "نوبة قلبية" },
+                    { name: "سعاد محمد", age: 68, location: "الجيزة", reason: "مرض السرطان" }
+                ];
+                updateCounter(population, mockBirths, mockDeaths);
+            }
+        }
+
+        function updateCounter(newPopulation, newBirths, newDeaths) {
+            document.getElementById('population-counter').innerText = newPopulation.toLocaleString();
+            document.getElementById('last-updated').innerText = "آخر تحديث: " + new Date().toLocaleTimeString();
+
+            if (Math.abs(newPopulation - population) > 1000) {
+                notification.classList.add('active');
+                setTimeout(() => notification.classList.remove('active'), 5000);
+            }
+
+            updateChart(newPopulation);
+            updateDetails(newBirths, newDeaths);
+            updateMap(newBirths, newDeaths);
+        }
+
+        function updateChart(newPopulation) {
+            populationData.push(newPopulation);
+            if (populationData.length > 10) {
+                populationData.shift();
+            }
+            populationChart.data.labels = populationData.map((_, i) => `النقطة ${i + 1}`);
+            populationChart.data.datasets[0].data = populationData;
+            populationChart.update();
+        }
+
+        function updateDetails(newBirths, newDeaths) {
+            birthList.innerHTML = newBirths.map(b => `
+                <div class="detail-item">
+                    <strong>الاسم:</strong> ${b.name} <br>
+                    <strong>العمر:</strong> ${b.age} <br>
+                    <strong>الموقع:</strong> ${b.location}
+                </div>
+            `).join('');
+
+            deathList.innerHTML = newDeaths.map(d => `
+                <div class="detail-item">
+                    <strong>الاسم:</strong> ${d.name} <br>
+                    <strong>العمر:</strong> ${d.age} <br>
+                    <strong>الموقع:</strong> ${d.location} <br>
+                    <strong>السبب:</strong> ${d.reason}
+                </div>
+            `).join('');
+        }
+
+        function updateMap(newBirths, newDeaths) {
+            // Clear previous markers
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            newBirths.forEach(b => {
+                L.marker([26.8205, 30.8025], { title: `مولود جديد: ${b.name}` }).addTo(map)
+                    .bindPopup(`<b>${b.name}</b><br>الموقع: ${b.location}<br>العمر: ${b.age}`);
+            });
+
+            newDeaths.forEach(d => {
+                L.marker([26.8205, 30.8025], { title: `وفاة: ${d.name}` }).addTo(map)
+                    .bindPopup(`<b>${d.name}</b><br>الموقع: ${d.location}<br>العمر: ${d.age}<br>السبب: ${d.reason}`);
+            });
+        }
+
+        const ctx = document.getElementById('populationChart').getContext('2d');
+        const populationChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: populationData.map((_, i) => `النقطة ${i + 1}`),
+                datasets: [{
+                    label: 'عدد السكان',
+                    data: populationData,
+                    borderColor: '#3b82f6',
+                    fill: false,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'الوقت',
+                            color: '#9ca3af'
+                        }
+                    },
+                    y: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'عدد السكان',
+                            color: '#9ca3af'
+                        }
+                    }
+                }
+            }
+        });
+
+        // بدء عملية التحديث عند تحميل الصفحة
+        fetchPopulationData();
+        setInterval(fetchPopulationData, 60000); // تحديث البيانات كل دقيقة
+    </script>
+
+    <p style="text-align:center; font-size:14px; color:#9ca3af;">مطور بواسطة أبو يوسف</p>
+</body>
+</html>
